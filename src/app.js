@@ -5,6 +5,7 @@ let chalk = require('chalk');
 let path = require('path');
 let url = require('url');
 let fs = require('fs');
+let zlib = require('zlib');
 let handlebars = require('handlebars');
 let { promisify, inspect } = require('util');
 let mime = require('mime');
@@ -32,7 +33,7 @@ class Server {
         let server = http.createServer();
         server.on('request', this.request.bind(this));
         server.listen(this.config.port, () => {
-            let url = `http://${this.config.host}:${this.config.port}`;
+            let url = `http://${config.host}:${this.config.port}`;
             debug(`server started at ${chalk.green(url)}`);
         });
     }
@@ -68,14 +69,66 @@ class Server {
         }
     }
     sendFile(req, res, filepath, statObj) {
-        // 设置缓存
-        let expires = new Date(Date.now() + 60 * 1000);
-        res.setHeader('Expires', expires.toUTCString());
-        res.setHeader('Cach-Contor', 'max-age=60');
+        // 设置缓存,如果有缓存则跳过这里
+        if (this.handleCache(req, res, filepath, statObj)) return;
+        // 添加zlib压缩
+        let encoding = this.getEncoding(req, res);
+        if (encoding) {
+            fs.createReadStream(filepath).pipe(encoding).pipe(res);
+        } else {
+            fs.createReadStream(filepath).pipe(res);
+        }
         // 设置头部信息
         res.setHeader('Content-Type', mime.getType(filepath));// .jpg
         fs.createReadStream(filepath).pipe(res);
     }
+
+    // zlib 压缩
+    getEncoding(req, res) {
+        let acceptEncoding = req.headers['accept-encoding'];
+        if (/\bgzip\b/.test[acceptEncoding]) {
+            res.setHeader('Content-Encoding', 'gzip');
+            return zlib.createGzip();
+        } else if (/\bdeflate\b/.test[acceptEncoding]) {
+            res.setHeader('Content-Encoding', 'deflate');
+            return zlib.createDeflate();
+        } else {
+            return null;
+        }
+    }
+
+    // 设置缓存
+    handleCache(req, res, filepath, statObj) {
+        try {
+            // 取到该字段
+            let ifModifiedSince = req.headers['if-modified-since'];
+            let isNoneMatch = req.headers['if-none-match'];
+            res.setHeader('Cache-Control', 'private', 'max-age=30');
+            res.setHeader('Expires', new Date(Date.now() + 30 * 1000).toGMTString());
+            let etag = statObj.size;
+            let lastModified = statObj.ctime.toGMTString();
+            res.setHeader('ETag', etag);
+            res.setHeader('Last-Modified', lastModified);
+            // 拿到该字段是否和当前的字段是否相符
+            if (isNoneMatch && isNodeMatch != etag) {
+                return false;
+            }
+            if (ifModifiedSince && ifMofefiedSince != lastModified) {
+                return false;
+            }
+            if (isNoneMatch || ifModifiedSince) {
+                res.writeHead(304);
+                res.end();
+                return true;
+            } else {
+                return false;
+            }
+
+        } catch (e) {
+            return new Error(e);
+        }
+    }
+
     sendError(req, res) {
         res.statusCode = 500;
         res.end(`there is something wrong in the server! please try later!`);

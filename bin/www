@@ -23,7 +23,7 @@ let argv = yargs.option('d', {
 })
     .usage('zn [options]')
     .example(
-    'zn -d / -p 9090 -o localhost', '在本机的9090端口上监听客户端的请求'
+    'zn -d / -p 8080 -o localhost', '在本机的9090端口上监听客户端的请求'
     ).help('h').argv;
 
 // argv = {d,root,o,host,p,port}
